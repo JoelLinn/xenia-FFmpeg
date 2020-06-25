@@ -36,8 +36,8 @@
 
 #include <libavcodec/avcodec.h>
 
-#define AUDIO_INBUF_SIZE 20480
-#define AUDIO_REFILL_THRESH 4096
+#define AUDIO_INBUF_SIZE 2048
+#define AUDIO_REFILL_THRESH AUDIO_INBUF_SIZE
 
 static int get_format_from_sample_fmt(const char **fmt,
                                       enum AVSampleFormat sample_fmt)
@@ -110,7 +110,8 @@ int main(int argc, char **argv)
     AVCodecParserContext *parser = NULL;
     int len, ret;
     FILE *f, *outfile;
-    uint8_t inbuf[AUDIO_INBUF_SIZE + AV_INPUT_BUFFER_PADDING_SIZE];
+    //uint8_t inbuf[AUDIO_INBUF_SIZE + AV_INPUT_BUFFER_PADDING_SIZE];
+    uint8_t inbuf[AUDIO_INBUF_SIZE];
     uint8_t *data;
     size_t   data_size;
     AVPacket *pkt;
@@ -119,17 +120,17 @@ int main(int argc, char **argv)
     int n_channels = 0;
     const char *fmt;
 
-    if (argc <= 2) {
-        fprintf(stderr, "Usage: %s <input file> <output file>\n", argv[0]);
+    if (argc <= 3) {
+        fprintf(stderr, "Usage: %s <input file> <channels> <output file>\n", argv[0]);
         exit(0);
     }
     filename    = argv[1];
-    outfilename = argv[2];
+    outfilename = argv[3];
 
     pkt = av_packet_alloc();
 
-    /* find the MPEG audio decoder */
-    codec = avcodec_find_decoder(AV_CODEC_ID_MP2);
+    /* find the XMA2 audio decoder */
+    codec = avcodec_find_decoder(AV_CODEC_ID_XMA2);
     if (!codec) {
         fprintf(stderr, "Codec not found\n");
         exit(1);
@@ -146,6 +147,16 @@ int main(int argc, char **argv)
         fprintf(stderr, "Could not allocate audio codec context\n");
         exit(1);
     }
+
+    // this is freed when the context is freed
+    c->extradata = av_malloc(34);
+    if (c->extradata) {
+        memset(c->extradata, 0, 34);
+        c->extradata_size = 34;
+    }
+
+    c->sample_rate = 44100;
+    c->channels = atoi(argv[2]);
 
     /* open it */
     if (avcodec_open2(c, codec, NULL) < 0) {
@@ -168,7 +179,9 @@ int main(int argc, char **argv)
     data      = inbuf;
     data_size = fread(inbuf, 1, AUDIO_INBUF_SIZE, f);
 
+    int chunks = 0;
     while (data_size > 0) {
+        chunks++;
         if (!decoded_frame) {
             if (!(decoded_frame = av_frame_alloc())) {
                 fprintf(stderr, "Could not allocate audio frame\n");
@@ -176,6 +189,7 @@ int main(int argc, char **argv)
             }
         }
 
+        /* should be optional for xma */
         ret = av_parser_parse2(parser, c, &pkt->data, &pkt->size,
                                data, data_size,
                                AV_NOPTS_VALUE, AV_NOPTS_VALUE, 0);
@@ -198,6 +212,7 @@ int main(int argc, char **argv)
                 data_size += len;
         }
     }
+    printf("Read %d xma packets.\n", chunks);
 
     /* flush the decoder */
     pkt->data = NULL;
